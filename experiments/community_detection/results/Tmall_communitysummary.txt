@@ -1,0 +1,6 @@
+removed nodes: 241
+Final optimized modularity (Q): 0.508
+Number of edges in the community graph: 18
+Number of num_communities in the community graph: 41
+Number of connected commuities: 41
+Number of isolated commuities: 22
