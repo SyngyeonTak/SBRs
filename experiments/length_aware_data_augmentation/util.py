@@ -4,59 +4,10 @@ import random
 import pandas as pd
 from collections import Counter
 import visual as vi
-from node2vec import Node2Vec
-import networkx as nx
-from sklearn.metrics.pairwise import cosine_similarity
-import tempfile
+#from node2vec import Node2Vec
 
-def get_undirected_graph(dataset):
-    G = nx.Graph()  # Use an undirected graph
-    unique_nodes = set()  # To store unique nodes
-
-    for sublist in dataset:
-        for i in range(len(sublist) - 1):
-            source = sublist[i]
-            target = sublist[i + 1]
-            unique_nodes.add(source)
-            unique_nodes.add(target)
-    
-            # Add an unweighted edge between source and target
-            G.add_edge(source, target)
-
-    # Remove self-loops if any
-    self_loops = list(nx.selfloop_edges(G))
-    if len(self_loops) > 0:
-        G.remove_edges_from(self_loops)
-        print(f"Removed {len(self_loops)} self-loops from the graph.")
-
-    return G
-
-def get_node2vec_similarity(G):
-    G = nx.relabel_nodes(G, lambda x: str(x))
-
-    # Define a custom temporary directory with an ASCII-only path
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        # Initialize Node2Vec model with the custom temp_folder path
-        node2vec = Node2Vec(G, dimensions=100, walk_length=80, num_walks=10, p=1, q=1, workers=8, temp_folder=tmpdirname)
-        
-        # Generate embeddings
-        model = node2vec.fit(window=10, min_count=1, batch_words=4, epochs=5)
-
-    # Get embeddings as vectors
-    node_embeddings = [model.wv[str(node)] for node in G.nodes()]
-
-    # Compute cosine similarity between nodes
-    cosine_sim = cosine_similarity(node_embeddings)
-
-    # Print similarity between node 0 and node 1 (if there are at least 2 nodes)
-    if len(G.nodes()) > 1:
-        print("Cosine similarity between node 0 and node 1:", cosine_sim[0, 1])
-    else:
-        print("Not enough nodes to calculate similarity.")
-
-    return cosine_sim  # Return the cosine similarity matrix if needed
-
-
+import similarity as sim
+import json
 
 # Function to load the dataset from pickle file
 def load_dataset(dataset_name):
@@ -127,26 +78,6 @@ def get_dataset(dataset_name, length_type = 'all', if_augmented=False):
 
     return dataset
 
-def get_bulk_visualization(args):
-    #length_types = ['short', 'medium', 'long', 'all']
-    length_types = ['all']
-    for dataset_name in args.datasets:
-        print('---------------------------------------------------')
-        for length_type in length_types:
-            dataset = get_dataset(dataset_name, length_type, if_augmented=False)
-
-            occurrences = get_last_item_occurance(dataset)
-
-            vi.visualize_bin_occurrence(occurrences)
-
-def get_bulk_similarity(args):
-    for dataset_name in args.datasets:
-        dataset = get_dataset(dataset_name, length_type = 'all', if_augmented=False)
-        session_G = get_undirected_graph(dataset)
-        similarity = get_node2vec_similarity(session_G)
-
-        print(similarity)
-
 def get_label_frequencies(args):
     length_types = ['all']
 
@@ -192,67 +123,6 @@ def get_label_frequencies(args):
 
 
 
-
-def get_bulk_statistics(args):
-    length_types = ['all']
-    training_ratios = []
-    augmented_ratios = []
-    swapped_ratios = []
-
-    dataset_names = []
-
-    for dataset_name in args.datasets:
-        for length_type in length_types:
-            training_dataset = get_dataset(dataset_name, length_type, if_augmented=False)
-            augmented_dataset = get_dataset(dataset_name, length_type, if_augmented=True)
-            swapped_dataset = label_swap(training_dataset)
-
-            # Check for differences
-            #half_index = len(swapped_dataset) // 2
-            #original_dataset = swapped_dataset[:half_index]
-            #modified_dataset = swapped_dataset[half_index:]
-            # compare_datasets(original_dataset, modified_dataset)
-
-
-            training_all_occurrences = get_all_item_occurance(training_dataset)
-            training_label_occurrences = get_last_item_occurance(training_dataset)
-            
-            augmented_all_occurances = get_all_item_occurance(augmented_dataset)
-            augmented_label_occurances = get_last_item_occurance(augmented_dataset)
-            
-            swapped_all_occurrences = get_all_item_occurance(swapped_dataset)
-            swapped_label_occurrences = get_last_item_occurance(swapped_dataset)
-
-
-            # Calculate ratios
-            training_ratio = len(training_label_occurrences) / len(training_all_occurrences)
-            augmented_ratio = len(augmented_label_occurances) / len(augmented_all_occurances)
-            swapped_ratio = len(swapped_label_occurrences) / len(swapped_all_occurrences)
-
-            # Store ratios for plotting
-            training_ratios.append(training_ratio)
-            augmented_ratios.append(augmented_ratio)
-            swapped_ratios.append(swapped_ratio)
-
-            dataset_names.append(dataset_name)
-
-            print('training session size: ', len(training_dataset))
-            print('training all size: ', len(training_all_occurrences))
-            print('training label size: ', len(training_label_occurrences))
-
-            print('augmented_data session size: ', len(augmented_dataset))
-            print('augmented_data all size: ', len(augmented_all_occurances))
-            print('augmented_data label size: ', len(augmented_label_occurances))
-
-            print('swapped_data session size: ', len(swapped_dataset))
-            print('swapped_data all size: ', len(swapped_all_occurrences))
-            print('swapped_data label size: ', len(swapped_label_occurrences))
-
-    # Plotting the bar plot
-    vi.visualize_dataset_label_ratio(training_ratios, augmented_ratios, swapped_ratios, dataset_names)
-
-
-
 def compare_datasets(training_dataset, modified_dataset):
     for i, (original, modified) in enumerate(zip(training_dataset, modified_dataset)):
         if original != modified:
@@ -273,43 +143,157 @@ def dummy_augment(training_dataset):
     return combined_dataset        
 
 
-
-
 def label_swap(training_dataset):
     modified_dataset = []
     length_dataset = [len(sequence) for sequence in training_dataset]
     average_length = sum(length_dataset) / len(length_dataset)
     windowsize = math.floor(average_length / 2)
     
-    for i, sequence in enumerate(training_dataset):
-        # Create multiple augmented sequences for each input sequence
-        for swap_count in range(len(sequence) - 2):  # Total swaps equal to length of sequence - 1
-            modified_sequence = sequence.copy()
-            effective_window_size = min(windowsize, len(sequence))  # Adjust for short sequences
-            window_items = sequence[-effective_window_size:]
+    for sequence in training_dataset:
+        modified_sequence = sequence.copy()
+        effective_window_size = min(windowsize, len(sequence))  # Adjust for short sequences
+        window_items = sequence[-effective_window_size:]
 
-            # Ensure there's more than one item to swap
-            if len(window_items) > 1:
-                # Choose an item to swap with the last item
-                random_item = window_items[swap_count % (effective_window_size - 1)]
-                
-                # Find indices in the original sequence
-                last_item_index = len(sequence) - 1
-                random_item_index = sequence.index(random_item, len(sequence) - effective_window_size)
-                
-                # Swap the items
-                modified_sequence[last_item_index], modified_sequence[random_item_index] = (
-                    modified_sequence[random_item_index],
-                    modified_sequence[last_item_index],
-                )
+        # Ensure there's more than one item to swap
+        if len(window_items) > 1:
+            # Choose a random item from the window to swap with the last item
+            random_item = random.choice(window_items[:-1])  # Exclude the last item in the window
+            last_item_index = len(sequence) - 1
+            random_item_index = sequence.index(random_item, len(sequence) - effective_window_size)
             
-            # Append each modified sequence to the dataset
-            modified_dataset.append(modified_sequence)
+            # Swap the chosen item with the last item
+            modified_sequence[last_item_index], modified_sequence[random_item_index] = (
+                modified_sequence[random_item_index],
+                modified_sequence[last_item_index],
+            )
 
+        # Append the modified sequence to the dataset
+        modified_dataset.append(modified_sequence)
+
+    # Combine the original dataset with the modified dataset
     combined_dataset = training_dataset + modified_dataset
     return combined_dataset
 
+def select_random_items(session, max_items, min_items = 1):
+    # Ignore the last item (target)
+    input_length = len(session) - 1
+    
+    # Calculate the number of items to select based on the session length
+    num_items = min(max_items, min_items + math.isqrt(input_length))
+    
+    # Get indices for selection, excluding the last item
+    indices = list(range(input_length))
+    
+    # Randomly select indices based on the calculated number
+    selected_indices = random.sample(indices, num_items)
+    
+    return selected_indices
+
+def create_augmented_session(session, similarity_pairs, max_items=10, augment_type="substitute"):
+    # Ignore the last item in the session (target)
+    input_length = len(session)
+    
+    # Calculate the number of items to select for augmentation
+    num_items = min(max_items, math.isqrt(input_length))
+    
+    #print('num_items:', num_items)
+    
+    # Randomly select positions of items to augment
+    selected_indices = random.sample(range(input_length - 1), num_items)
+    
+    # Create a copy of the original session to make modifications
+    new_session = session[:]
+    
+    # Track the offset to adjust indices when inserting
+    offset = 0
+    
+    for index in selected_indices:
+        original_item = session[index]
         
+        # Check if the original item has similar items in the pool
+        similar_items = similarity_pairs.get(str(original_item))
+        if similar_items:
+            # Randomly choose one similar item from the pool
+            substitute_item = random.choice(similar_items)[0]
+            
+            if augment_type == "substitute":
+                # Substitute the original item with the similar item
+                new_session[index] = substitute_item
+            elif augment_type == "insert":
+                # Insert the similar item right after the selected item
+                new_session.insert(index + 1 + offset, substitute_item)
+                # Increment offset to adjust for the next insertion
+                offset += 1
+            else:
+                raise ValueError("augment_type must be either 'substitute' or 'insert'")
+    
+    return new_session
+
+def test_augmented_session():
+    session = [0, 1, 2, 3, 4, "v_last"]
+    similarity_pairs = sim.load_similarity_pairs('experiments/length_aware_data_augmentation/results/similarity/node2vec/diginetica_similarity_pairs_entire.txt')
+
+    augmented_session = create_augmented_session(session, similarity_pairs, max_items = 10, augment_type="insert")
+
+    print("Original Session:", session)
+    print("Augmented Session:", augmented_session)
 
 
+def similarity_based_augment(dataset, dataset_name, similarity_type, augment_type, iteration_k = 1):
+    similarity_pairs = sim.load_similarity_pairs(f'experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_similarity_pairs_{similarity_type}.txt')
+    
+    augmented_dataset = []
 
+    for i, session in enumerate(dataset):
+        #print('original_sessiom: ', session)
+        for _ in range(iteration_k):
+            # Generate an augmented session with insertion
+            augmented_session = create_augmented_session(session, similarity_pairs, max_items=10, augment_type= augment_type)
+            augmented_dataset.append(augmented_session)
+
+        #print('augmented_session: ', augmented_session)
+
+    combined_dataset = dataset + augmented_dataset
+
+    #print('combined_dataset: ', combined_dataset)
+
+    return combined_dataset
+
+
+def get_solo_similarity_based_augment(args):
+    length_types = ['all']
+    iteration_range = range(1, 11)  # Loop from 1 to 5
+    last_iteration_k = 1
+    for dataset_name in args.datasets:
+        for length_type in length_types:
+            density_values = []
+            edge_counts = []
+            labels = []
+
+            training_dataset = get_dataset(dataset_name, length_type, if_augmented=False)
+
+            # Loop over iterations
+            for iteration_k in iteration_range:
+                # Perform similarity-based augmentation with different iteration_k
+                #unseen_insert_dataset = similarity_based_augment(training_dataset, dataset_name, similarity_type='unseen', augment_type='insert', iteration_k=iteration_k)
+                #label_swap_unseen_insert_dataset = label_swap(unseen_insert_dataset)
+                entire_insert_dataset = similarity_based_augment(training_dataset, dataset_name, similarity_type='entire', augment_type='insert', iteration_k=iteration_k)
+                label_swap_entire_insert_dataset = label_swap(entire_insert_dataset)
+
+
+                # Create a dictionary to hold datasets for current iteration_k
+                datasets = {
+                    #'label_swap_unseen_insert_G': label_swap_unseen_insert_dataset
+                    'label_swap_entire_insert_G': label_swap_entire_insert_dataset
+                }
+
+                # Loop over each dataset in the current iteration and calculate graph properties
+                for name, dataset in datasets.items():
+                    density, num_edges = sim.calculate_graph_properties(dataset)
+                    density_values.append(density)
+                    edge_counts.append(num_edges)
+                    labels.append(f"{name}_k{iteration_k}")  # Include iteration_k in the label
+
+                last_iteration_k = iteration_k
+                # Visualize the graph properties and save the images
+        vi.visual_density_edge_number(density_values, edge_counts, labels, dataset_name, last_iteration_k, similarity_type='entire')

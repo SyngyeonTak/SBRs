@@ -123,3 +123,47 @@ def visual_frequency_distribution(dataset_names, all_frequencies, bin_size=5, ma
 
         plt.savefig(f'experiments/length_aware_data_augmentation/images/visual_frequency_distribution_{dataset_name}.png', format = 'png', dpi = 700)
         #plt.show()
+
+def visual_density_edge_number(density_values, edge_counts, labels, dataset_name, iteration_k, similarity_type = 'entire'):
+    # Plotting graph density
+    plt.figure(figsize=(10, 5))
+    plt.bar(labels, density_values, color='skyblue')
+    plt.xlabel('Graphs')
+    plt.ylabel('Density')
+    plt.title(f'{dataset_name} Graph Density Comparison (Iteration {iteration_k})')
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/visual_density_values_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
+    plt.close()
+
+    # Plotting edge count
+    plt.figure(figsize=(10, 5))
+    plt.bar(labels, edge_counts, color='salmon')
+    plt.xlabel('Graphs')
+    plt.ylabel('Number of Edges')
+    plt.title(f'{dataset_name} Edge Count Comparison (Iteration {iteration_k})')
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/visual_edge_number_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
+    plt.close()
+
+def visual_similarity_ranking_plot(params):
+    # Unpack the dictionary
+    highest_similarity = params['highest_similarity']
+    dataset_name = params['dataset_name']
+    similarity_type = params['similarity_type']
+    item_type = params['item_type']
+
+    # Choose color based on item_type
+    color = 'skyblue' if item_type == 'head' else 'lightcoral'  # You can choose your own colors
+    
+    # Create the plot
+    plt.figure(figsize=(10, 5))
+    plt.hist(highest_similarity, bins=10, edgecolor='black', color=color)
+    plt.title(f"Histogram of Similarity Scores for {item_type.capitalize()} Items")
+    plt.xlabel("Similarity Score")
+    plt.ylabel("Frequency")
+    
+    # Save the plot with a dynamic filename
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/ranking/visual_similarity_ranking_{item_type}_{similarity_type}_{dataset_name}.png', format='png', dpi=700)
+    plt.close()
