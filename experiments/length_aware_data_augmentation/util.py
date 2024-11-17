@@ -10,8 +10,8 @@ import similarity as sim
 import json
 
 # Function to load the dataset from pickle file
-def load_dataset(dataset_name):
-    with open(f'{dataset_name}.txt', 'rb') as f:
+def load_dataset(dataset_path):
+    with open(f'{dataset_path}.txt', 'rb') as f:
         dataset = pickle.load(f)
     return dataset
 
@@ -77,6 +77,7 @@ def get_dataset(dataset_name, length_type = 'all', if_augmented=False):
         dataset = flatten_dataset(dataset)
 
     return dataset
+
 
 def get_label_frequencies(args):
     length_types = ['all']
@@ -171,8 +172,8 @@ def label_swap(training_dataset):
         modified_dataset.append(modified_sequence)
 
     # Combine the original dataset with the modified dataset
-    combined_dataset = training_dataset + modified_dataset
-    return combined_dataset
+    #combined_dataset = training_dataset + modified_dataset
+    return modified_dataset
 
 def select_random_items(session, max_items, min_items = 1):
     # Ignore the last item (target)
@@ -240,7 +241,7 @@ def test_augmented_session():
 
 
 def similarity_based_augment(dataset, dataset_name, similarity_type, augment_type, iteration_k = 1):
-    similarity_pairs = sim.load_similarity_pairs(f'experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_similarity_pairs_{similarity_type}.txt')
+    similarity_pairs = sim.load_similarity_pairs(f'experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_p_quarter_q_4_similarity_pairs_{similarity_type}.txt')
     
     augmented_dataset = []
 
@@ -251,13 +252,8 @@ def similarity_based_augment(dataset, dataset_name, similarity_type, augment_typ
             augmented_session = create_augmented_session(session, similarity_pairs, max_items=10, augment_type= augment_type)
             augmented_dataset.append(augmented_session)
 
-        #print('augmented_session: ', augmented_session)
 
-    combined_dataset = dataset + augmented_dataset
-
-    #print('combined_dataset: ', combined_dataset)
-
-    return combined_dataset
+    return augmented_dataset
 
 
 def get_solo_similarity_based_augment(args):
@@ -297,3 +293,63 @@ def get_solo_similarity_based_augment(args):
                 last_iteration_k = iteration_k
                 # Visualize the graph properties and save the images
         vi.visual_density_edge_number(density_values, edge_counts, labels, dataset_name, last_iteration_k, similarity_type='entire')
+
+def get_original_learnable_dataset(args):
+    for dataset_name in args.datasets:
+        dataset_path = f'./datasets/{dataset_name}/train'
+
+        learnable_dataset = load_dataset(dataset_path)
+
+        print(learnable_dataset[0][80:85])
+        print(learnable_dataset[1][80:85])
+        print(len(learnable_dataset))
+        print(type(learnable_dataset))
+
+def make_learnable_dataset(dataset):
+    input_sequences = [sublist[:-1] for sublist in dataset]  # All elements except the last in each sublist
+    target_items = [sublist[-1] for sublist in dataset]  
+    result = (input_sequences, target_items)
+
+    return result
+
+def get_augmented_dataset(params):
+    dataset_name = params['dataset_name']
+    similarity_type = params['similarity_type']
+    augment_type = params['augment_type']
+    iteration_k = params['iteration_k']
+    if_label_swap = params['if_label_swap']
+
+    training_dataset = get_dataset(dataset_name, if_augmented=False)
+
+    # Perform similarity-based augmentation with different iteration_k
+    augmented_dataset = similarity_based_augment(training_dataset
+                                                 , dataset_name
+                                                 , similarity_type= similarity_type
+                                                 , augment_type=augment_type
+                                                 , iteration_k=iteration_k)
+    
+    if if_label_swap:
+        augmented_dataset = label_swap(training_dataset)
+
+
+    return augmented_dataset
+
+def save_hop_relationships(dataset_name, similarity_type):
+
+    dataset_path = f'datasets/{dataset_name}/all_train_seq'
+
+    dataset = load_dataset(dataset_path)
+
+    G = sim.get_undirected_graph(dataset)
+
+    similarity_path = f"experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_similarity_pairs_{similarity_type}"
+
+    with open(f"{similarity_path}.txt", "r") as f:
+        similarity_pairs = json.load(f)
+
+    hop_relationships = sim.find_hop_relationships(G, similarity_pairs)
+
+    with open(f"experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_hop_relationships_{similarity_type}.txt", "w") as f:
+        json.dump(hop_relationships, f, indent=4)
+
+    print("Hop relationships saved to 'hop_relationships.json'")

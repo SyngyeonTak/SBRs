@@ -10,6 +10,7 @@ from tqdm import tqdm
 import json
 
 gpu_index = 0
+directory_path = '/experiments/length_aware_data_augmentation/results/similarity'
 
 def get_undirected_graph(dataset):
     G = nx.Graph()  # Use an undirected graph
@@ -53,6 +54,8 @@ def get_node2vec_embeddings(G, gpu_index=0):
     # Convert NetworkX graph to PyTorch Geometric format
     pyg_graph = from_networkx(G)
 
+    print(pyg_graph.edge_index)
+
     # Initialize Node2Vec model
     node2vec = Node2Vec(
         pyg_graph.edge_index,
@@ -61,8 +64,8 @@ def get_node2vec_embeddings(G, gpu_index=0):
         context_size=10,
         walks_per_node=10,
         num_negative_samples=1,
-        p=1,
-        q=1
+        p=0.25,
+        q=4
     )
 
     # Print CUDA availability information
@@ -88,20 +91,20 @@ def get_node2vec_embeddings(G, gpu_index=0):
         node2vec.train()
         total_loss = 0
 
-        # Create a progress bar for each epoch
-        with tqdm(loader, desc=f"Epoch {epoch+1}", unit="batch") as pbar:
-            for pos_rw, neg_rw in pbar:
-                pos_rw, neg_rw = pos_rw.to(device), neg_rw.to(device)
-                
-                optimizer.zero_grad()
-                loss = node2vec.loss(pos_rw, neg_rw)
-                loss.backward()
-                optimizer.step()
+        # Loop over loader without tqdm
+        for batch_idx, (pos_rw, neg_rw) in enumerate(loader):
+            pos_rw, neg_rw = pos_rw.to(device), neg_rw.to(device)
+            
+            optimizer.zero_grad()
+            loss = node2vec.loss(pos_rw, neg_rw)
+            loss.backward()
+            optimizer.step()
 
-                total_loss += loss.item()
-                
-                # Update the progress bar description with the current loss
-                pbar.set_postfix(loss=loss.item())
+            total_loss += loss.item()
+            
+            # Print progress every few batches, or adjust as needed
+            if batch_idx % 10 == 0:  # Adjust the frequency here
+                print(f"Epoch {epoch + 1}, Batch {batch_idx + 1}/{len(loader)}, Loss: {loss.item()}")
 
         print(f'Epoch {epoch + 1}, Avg Loss: {total_loss / len(loader)}')
 
@@ -113,21 +116,6 @@ def get_node2vec_embeddings(G, gpu_index=0):
     node_embeddings = node2vec(torch.arange(pyg_graph.num_nodes, device=device))
     return node_embeddings.cpu().detach().numpy()
 
-# def calculate_cosine_similarity(embeddings):
-#     # Convert embeddings to a PyTorch tensor
-#     embeddings_tensor = torch.tensor(embeddings, dtype=torch.float32)
-
-#     # Check if CUDA is available and move embeddings to GPU
-#     if torch.cuda.is_available():
-#         embeddings_tensor = embeddings_tensor.to('cuda')
-
-#     # Normalize the embeddings
-#     embeddings_norm = F.normalize(embeddings_tensor, p=2, dim=1)
-    
-#     # Compute cosine similarity using matrix multiplication
-#     cosine_sim = torch.mm(embeddings_norm, embeddings_norm.t())
-    
-#     return cosine_sim.cpu()  # Move the result back to CPU if needed
 
 def calculate_cosine_similarity(embeddings):
     # Convert embeddings to a NumPy array if they are not already
@@ -139,19 +127,29 @@ def calculate_cosine_similarity(embeddings):
     
     # Calculate cosine similarity for each pair of embeddings
     for i in tqdm(range(num_embeddings), desc="Calculating Cosine Similarity"):
+    #for i in range(num_embeddings):
         cosine_sim[i] = cosine_similarity(embeddings[i].reshape(1, -1), embeddings).flatten()
     
     return cosine_sim
 
+# def calculate_cosine_similarity(embeddings):
+#     # Convert embeddings to a PyTorch tensor and move to GPU
+#     embeddings = torch.tensor(embeddings, device='cuda')
+    
+#     # Normalize embeddings to compute cosine similarity via dot product
+#     embeddings = F.normalize(embeddings)
+    
+#     # Calculate cosine similarity using matrix multiplication
+#     cosine_sim = torch.mm(embeddings, embeddings.T)
+    
+#     return cosine_sim.cpu().numpy()  # Convert back to NumPy array if needed
+
 def save_similarity_pairs(similarity_pairs, filename, dataset_name, similarity_type):
 
     print(dataset_name)
-    #print(type(similarity_pairs))
-    #print(similarity_pairs['0'])
 
-    with open(f'experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_{filename}_{similarity_type}', 'w') as f:
+    with open(f'{directory_path}/node2vec/{dataset_name}_{similarity_type}_{filename}', 'w') as f:
         json.dump(similarity_pairs, f, indent=4)
-
 
 def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= False):
     similarity_pairs = {}
@@ -165,19 +163,14 @@ def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= 
 
         # Optionally filter out indices that are already connected in G
         if filter_connected:
-            similar_indices = [sim_idx for sim_idx in similar_indices if not G.has_edge(i, int(sim_idx))]
+            similar_indices = [sim_idx for sim_idx in similar_indices if not G.has_edge(i + 1, int(sim_idx + 1))]
             similarity_type = 'unseen'
 
         similar_indices = [idx.item() if isinstance(idx, torch.Tensor) else idx for idx in similar_indices]
 
-        # Get similarity scores for the selected indices
-        #print(cosine_sim[i])
-        #print(similar_indices)
-        #print(cosine_sim[i][1, 2, 3])
         similar_scores = cosine_sim[i][similar_indices]
 
-        # Store results
-        similarity_pairs[str(i)] = [(int(sim_idx), float(sim_score)) for sim_idx, sim_score in zip(similar_indices, similar_scores)]
+        similarity_pairs[str(i + 1)] = [(int(sim_idx + 1), float(sim_score)) for sim_idx, sim_score in zip(similar_indices, similar_scores)]
     
     return similarity_pairs, similarity_type
 
@@ -185,19 +178,25 @@ def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= 
 def get_node2vec_similarity(dataset, dataset_name, filter_connected):
     # Get node embeddings using Node2Vec
 
-    #dataset = dataset[:500]
+    #dataset = dataset[:2]
+
+    #print(dataset)
 
     G = get_undirected_graph(dataset)
 
     node_embeddings = get_node2vec_embeddings(G)
-    
+
     # Calculate cosine similarity
     cosine_sim = calculate_cosine_similarity(node_embeddings)
+
+    #print(cosine_sim)
 
     # Get top similarity pairs
     similarity_pairs, similarity_type = get_top_similarity_pairs(cosine_sim, pool_size=3, G = G, filter_connected = filter_connected)
 
-    save_similarity_pairs(similarity_pairs, 'similarity_pairs.txt', dataset_name, similarity_type)
+    #print(similarity_pairs)
+
+    save_similarity_pairs(similarity_pairs, '_similarity_pairs.txt', dataset_name, similarity_type)
 
     # Return the cosine similarity matrix and similarity pairs
     #return cosine_sim, similarity_pairs  # Return both results if needed
@@ -212,7 +211,7 @@ def load_similarity_pairs(file_path):
 def separate_head_tail_by_pareto(node_degree_info):
     # Sort nodes by degree in descending order
     sorted_nodes = sorted(node_degree_info.items(), key=lambda x: x[1], reverse=True)
-    
+    #print('sorted_nodes: ', sorted_nodes[:10])
     # Calculate the threshold for the top 20% of nodes
     top_20_percent_count = int(0.2 * len(sorted_nodes))
     
@@ -220,6 +219,14 @@ def separate_head_tail_by_pareto(node_degree_info):
     head_items = [node for node, degree in sorted_nodes[:top_20_percent_count]]
     tail_items = [node for node, degree in sorted_nodes[top_20_percent_count:]]
     
+    head_items_degree = [degree for node, degree in sorted_nodes[:top_20_percent_count]]
+    tail_items_degree = [degree for node, degree in sorted_nodes[top_20_percent_count:]]
+
+    #print(head_items_degree[:10])
+    #print(head_items[:10])
+    #print(tail_items_degree[:10])
+    #print(tail_items[:10])
+
     return head_items, tail_items
 
 def get_highest_similarity(similarity_pairs, nodes_list):
@@ -232,12 +239,16 @@ def get_highest_similarity(similarity_pairs, nodes_list):
             if not pairs:
                 # If empty, add a default similarity (node, 0) to indicate no similarity found
                 highest_similarity.append(0)
+                #highest_similarity.append((node, 0))
             else:
                 # Find the pair with the highest similarity score
                 max_pair = max(pairs, key=lambda x: x[1])
                 max_pair_similarity = max_pair[1]
                 highest_similarity.append(max_pair_similarity)
+                #highest_similarity.append((node, max_pair[1]))
 
+    #print("Before sorting:", highest_similarity)
+    #highest_similarity = sorted(highest_similarity, key= lambda x : x[1], reverse=True)
     highest_similarity = sorted(highest_similarity, reverse=True)
     
     return highest_similarity
@@ -251,4 +262,29 @@ def get_similarity_ranking(dataset, dataset_name, simiarity_type):
     head_highest_similarity = get_highest_similarity(similarity_pairs, head_list)
     tail_highest_similarity = get_highest_similarity(similarity_pairs, tail_list)
 
+    #print(head_highest_similarity[-30:])
+    #print(tail_highest_similarity[-30:])
+
     return head_highest_similarity, tail_highest_similarity
+
+def find_hop_relationships(G, similarity_pairs):
+    hop_relationships = {}
+
+    for key, similar_items in similarity_pairs.items():
+        key = int(key)  # Convert key to integer if needed
+        hop_relationships[key] = []
+
+        for item_id, similarity in similar_items:
+            # Find shortest path length (hop distance) between key and item_id
+            if G.has_node(key) and G.has_node(item_id):
+                try:
+                    hop_distance = nx.shortest_path_length(G, source=key, target=item_id)
+                except nx.NetworkXNoPath:
+                    hop_distance = None  # No path exists
+            else:
+                hop_distance = None  # Node not in graph
+
+            hop_relationships[key].append((item_id, similarity, hop_distance))
+
+    return hop_relationships
+

@@ -133,7 +133,7 @@ def visual_density_edge_number(density_values, edge_counts, labels, dataset_name
     plt.title(f'{dataset_name} Graph Density Comparison (Iteration {iteration_k})')
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/visual_density_values_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/p_quarter_q_4_visual_density_values_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
     plt.close()
 
     # Plotting edge count
@@ -144,7 +144,7 @@ def visual_density_edge_number(density_values, edge_counts, labels, dataset_name
     plt.title(f'{dataset_name} Edge Count Comparison (Iteration {iteration_k})')
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/visual_edge_number_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/p_quarter_q_4_visual_edge_number_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
     plt.close()
 
 def visual_similarity_ranking_plot(params):
