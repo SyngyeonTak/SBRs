@@ -9,6 +9,8 @@ import visual as vi
 import similarity as sim
 import json
 
+
+
 # Function to load the dataset from pickle file
 def load_dataset(dataset_path):
     with open(f'{dataset_path}.txt', 'rb') as f:
@@ -145,11 +147,11 @@ def dummy_augment(training_dataset):
 
 
 def label_swap(training_dataset):
-    modified_dataset = []
+    label_swap_dataset = []
     length_dataset = [len(sequence) for sequence in training_dataset]
     average_length = sum(length_dataset) / len(length_dataset)
     windowsize = math.floor(average_length / 2)
-    
+
     for sequence in training_dataset:
         modified_sequence = sequence.copy()
         effective_window_size = min(windowsize, len(sequence))  # Adjust for short sequences
@@ -169,11 +171,25 @@ def label_swap(training_dataset):
             )
 
         # Append the modified sequence to the dataset
-        modified_dataset.append(modified_sequence)
+        label_swap_dataset.append(modified_sequence)
 
     # Combine the original dataset with the modified dataset
     #combined_dataset = training_dataset + modified_dataset
-    return modified_dataset
+    return label_swap_dataset
+
+def prefix_cropping(training_dataset):
+
+    prefix_cropping_dataset = []
+
+    for sequence in training_dataset:
+        loop_range = len(sequence) - 2
+ 
+
+        for idx in range(0, loop_range):
+            modified_sequence = sequence[:-(idx+1)] # idx = 0 -> 0 ~ -1
+            prefix_cropping_dataset.append(modified_sequence)
+
+    return prefix_cropping_dataset
 
 def select_random_items(session, max_items, min_items = 1):
     # Ignore the last item (target)
@@ -193,25 +209,41 @@ def select_random_items(session, max_items, min_items = 1):
 def create_augmented_session(session, similarity_pairs, max_items=10, augment_type="substitute"):
     # Ignore the last item in the session (target)
     input_length = len(session)
-    
-    # Calculate the number of items to select for augmentation
+
     num_items = min(max_items, math.isqrt(input_length))
+    selected_indices = []
+    available_indices = set(range(input_length - 1))
     
-    #print('num_items:', num_items)
-    
-    # Randomly select positions of items to augment
-    selected_indices = random.sample(range(input_length - 1), num_items)
-    
-    # Create a copy of the original session to make modifications
-    new_session = session[:]
-    
-    # Track the offset to adjust indices when inserting
-    offset = 0
-    
-    for index in selected_indices:
+    # Counter to ensure we don't loop infinitely
+    attempts = 0
+    max_attempts = len(available_indices)  # Only as many attempts as there are indices
+
+
+    while len(selected_indices) < num_items and attempts < max_attempts:
+        #print('selected_indices: ', selected_indices)
+        #print('attempts: ', attempts)
+        #print('num_items: ', num_items)
+        #print('max_attempts: ', max_attempts)
+        #print('available_indices: ', available_indices)
+        #print('session: ', session)
+        index = random.choice(list(available_indices))
         original_item = session[index]
         
         # Check if the original item has similar items in the pool
+        if similarity_pairs.get(str(original_item)):
+            selected_indices.append(index)
+        else:
+            # Increment attempts if no similar items found
+            attempts += 1
+        
+        # Remove the index from the pool of available indices
+        available_indices.remove(index)
+
+    new_session = session[:]
+    offset = 0
+
+    for index in selected_indices:
+        original_item = session[index]
         similar_items = similarity_pairs.get(str(original_item))
         if similar_items:
             # Randomly choose one similar item from the pool
@@ -227,7 +259,13 @@ def create_augmented_session(session, similarity_pairs, max_items=10, augment_ty
                 offset += 1
             else:
                 raise ValueError("augment_type must be either 'substitute' or 'insert'")
-    
+            
+    # if input_length > 7:
+    #     print('session: ', session)
+    #     print('new_session: ', new_session)
+    #     print('selected_indices: ', selected_indices)
+    #     return
+
     return new_session
 
 def test_augmented_session():
@@ -240,21 +278,109 @@ def test_augmented_session():
     print("Augmented Session:", augmented_session)
 
 
-def similarity_based_augment(dataset, dataset_name, similarity_type, augment_type, iteration_k = 1):
-    similarity_pairs = sim.load_similarity_pairs(f'experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_p_quarter_q_4_similarity_pairs_{similarity_type}.txt')
+def similarity_based_augment(dataset, dataset_name, similarity_pool, similarity_type, augment_type, iteration_k = 1):
+    similarity_pairs = sim.load_similarity_pairs(f'experiments/length_aware_data_augmentation/results/similarity/{similarity_type}/{dataset_name}_{similarity_pool}_similarity_pairs.txt')
     
     augmented_dataset = []
+
+    if_highest_similarity = True
+    if_similarity_threshold = True
+
+
+    if if_highest_similarity:
+        for key, pairs in similarity_pairs.items():
+            # Find the pair with the highest value (second element of each pair)
+            if not pairs:
+                similarity_pairs[key] = []  # Keep it as an empty list
+                continue
+
+            highest_pair = max(pairs, key=lambda x: x[1])
+            similarity_pairs[key] = [highest_pair]
+
+    #print(similarity_pairs['9629'])
+
+    if if_similarity_threshold:
+        all_similarity = [pair[1] for pairs in similarity_pairs.values() for pair in pairs]
+
+        threshold = sum(all_similarity) / len(all_similarity) if all_similarity else 0
+
+        #print(threshold)
+
+
+        for key, pairs in similarity_pairs.items():
+            if not pairs:
+                similarity_pairs[key] = []  # Keep it as an empty list
+                continue
+            similarity_pairs[key] = [pair for pair in pairs if pair[1] >= threshold]
 
     for i, session in enumerate(dataset):
         #print('original_sessiom: ', session)
         for _ in range(iteration_k):
             # Generate an augmented session with insertion
-            augmented_session = create_augmented_session(session, similarity_pairs, max_items=10, augment_type= augment_type)
+            augmented_session = create_augmented_session(session, similarity_pairs, max_items=1, augment_type= augment_type)
             augmented_dataset.append(augmented_session)
 
 
-    return augmented_dataset
+    augmented_key = f'{similarity_pool}_{augment_type}'
 
+    return augmented_key, augmented_dataset
+
+def similarity_based_augment_random(dataset, dataset_name, similarity_pool, similarity_type, augment_type, target_augmented_count):
+    # Load similarity pairs
+    similarity_pairs = sim.load_similarity_pairs(
+        f'experiments/length_aware_data_augmentation/results/similarity/{similarity_type}/{dataset_name}_{similarity_pool}_similarity_pairs.txt'
+    )
+    
+    augmented_dataset = []
+
+    if_highest_similarity = True
+    if_similarity_threshold = True
+
+
+    if if_highest_similarity:
+        for key, pairs in similarity_pairs.items():
+            # Find the pair with the highest value (second element of each pair)
+            if not pairs:
+                similarity_pairs[key] = []  # Keep it as an empty list
+                continue
+
+            highest_pair = max(pairs, key=lambda x: x[1])
+            similarity_pairs[key] = [highest_pair]
+
+    #print(similarity_pairs['9629'])
+
+    if if_similarity_threshold:
+        all_similarity = [pair[1] for pairs in similarity_pairs.values() for pair in pairs]
+
+        threshold = sum(all_similarity) / len(all_similarity) if all_similarity else 0
+
+        #print(threshold)
+
+
+        for key, pairs in similarity_pairs.items():
+            if not pairs:
+                similarity_pairs[key] = []  # Keep it as an empty list
+                continue
+            similarity_pairs[key] = [pair for pair in pairs if pair[1] >= threshold]
+
+    while len(augmented_dataset) < target_augmented_count:
+        # Randomly select a session index (duplicates allowed)
+        session_index = random.randint(0, len(dataset) - 1)
+        session = dataset[session_index]
+        
+        # Generate an augmented session
+        augmented_session = create_augmented_session(
+            session, similarity_pairs, max_items = 1, augment_type=augment_type
+        )
+        augmented_dataset.append(augmented_session)
+ 
+        # Stop if the target count is reached
+        if len(augmented_dataset) >= target_augmented_count:
+            break
+
+    augmented_key = f'{similarity_pool}_{augment_type}_random'
+    
+    return augmented_key, augmented_dataset
 
 def get_solo_similarity_based_augment(args):
     length_types = ['all']
@@ -334,7 +460,7 @@ def get_augmented_dataset(params):
 
     return augmented_dataset
 
-def save_hop_relationships(dataset_name, similarity_type):
+def save_hop_relationships(dataset_name, similarity_type, similarity_pool):
 
     dataset_path = f'datasets/{dataset_name}/all_train_seq'
 
@@ -342,14 +468,34 @@ def save_hop_relationships(dataset_name, similarity_type):
 
     G = sim.get_undirected_graph(dataset)
 
-    similarity_path = f"experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_similarity_pairs_{similarity_type}"
+    similarity_path = f"experiments/length_aware_data_augmentation/results/similarity/{similarity_type}/{dataset_name}_{similarity_pool}_similarity_pairs"
 
     with open(f"{similarity_path}.txt", "r") as f:
         similarity_pairs = json.load(f)
 
     hop_relationships = sim.find_hop_relationships(G, similarity_pairs)
 
-    with open(f"experiments/length_aware_data_augmentation/results/similarity/node2vec/{dataset_name}_hop_relationships_{similarity_type}.txt", "w") as f:
+    with open(f"experiments/length_aware_data_augmentation/results/similarity/{similarity_type}/{dataset_name}_{similarity_pool}_hop_relationships.txt", "w") as f:
         json.dump(hop_relationships, f, indent=4)
 
     print("Hop relationships saved to 'hop_relationships.json'")
+
+def get_direct_item_list(dataset_name, item_id):
+
+    dataset = get_dataset(dataset_name, length_type = 'all', if_augmented=False)
+
+    adjacent_items = set()
+    
+    # Iterate over each session in the dataset
+    for session in dataset:
+        # Check if the item_id is in the current session
+        if item_id in session:
+            # Add all other items in the session to the adjacent_items set
+            adjacent_items.update(session)
+    
+    # Remove the item_id itself from the set of adjacent items (if present)
+    adjacent_items.discard(item_id)
+    
+    print(adjacent_items)
+
+    return adjacent_items

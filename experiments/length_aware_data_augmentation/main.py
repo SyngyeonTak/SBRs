@@ -4,12 +4,9 @@ import numpy as np
 import util
 import bulk_util as bulk
 import torch
-#import torch_geometric
+import torch_geometric
 import similarity as sim
 import json
-
-filter_connected_list = [True, False]
-
 def main():
 
     
@@ -25,10 +22,22 @@ def main():
 
         parser.add_argument('--original_percents', nargs='+', default= [0.1],
                             help='List of original_percent')
-        parser.add_argument('--filter_connected_list', nargs='+', default= [True],
+        
+        parser.add_argument('--filter_connected_list', nargs='+', default= [True, False],
                             help='filter_connected')
-        parser.add_argument('--similarity_type_list', nargs='+', default= ['entire', 'unseen'],
+        
+        parser.add_argument('--similarity_type_list', nargs='+', default= ['node2vec', 'jaccard'],
                             help='similarity_type')
+        
+        parser.add_argument('--similarity_pool_list', nargs='+', default= ['unseen', 'entire'],
+                            help='similarity_pool')
+        
+        parser.add_argument('--augmented_type_list', nargs='+', default= ['insert', 'substitute'],
+                            help='augmented_type')
+        
+        parser.add_argument('--if_random_list', nargs='+', default= [False],
+                            help='if randomly extract sessions for augmentation')
+
 
 
         args = parser.parse_args()
@@ -39,8 +48,9 @@ def main():
         #util.get_label_frequencies(args)
 
         #############################################
-        bulk.get_bulk_similarity(args) 
+        #bulk.get_bulk_similarity(args) 
         #bulk.get_bulk_similarity_based_augment(args)
+        #bulk.get_bulk_similarity_based_augment_random(args)
         #util.get_solo_similarity_based_augment(args)
         #bulk.get_bulk_similarity_ranking(args)
 
@@ -51,6 +61,22 @@ def main():
         
         #############################################
         #bulk.save_bulk_save_hop_relationships(args)
+        #util.get_direct_item_list('diginetica', 13)
+
+        #############################################
+        #bulk.clean_bulk_similarity_pool(args)
+        original_dataset = util.get_dataset(args.dataset, length_type = 'all', if_augmented=False)
+        prefix_dataset = util.get_dataset(args.dataset, length_type = 'all', if_augmented=True)
+        
+        augmented_dataset = util.prefix_cropping(original_dataset)
+
+
+        print(len(original_dataset))
+        print(len(prefix_dataset))
+        print(len(prefix_dataset) - len(original_dataset))
+        print(len(augmented_dataset))
+
+
 
     #################################
     

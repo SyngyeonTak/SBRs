@@ -10,7 +10,8 @@ from tqdm import tqdm
 import json
 
 gpu_index = 0
-directory_path = '/experiments/length_aware_data_augmentation/results/similarity'
+device = torch.device(f'cuda:{gpu_index}' if torch.cuda.is_available() else 'cpu')
+directory_path = 'experiments/length_aware_data_augmentation/results/similarity'
 
 def get_undirected_graph(dataset):
     G = nx.Graph()  # Use an undirected graph
@@ -49,6 +50,113 @@ def calculate_graph_properties(dataset):
     
     return density, num_edges
 
+def calculate_jaccard_similarity(G):
+    """
+    Calculate the Jaccard similarity for all pairs of nodes in an undirected graph G.
+    
+    Args:
+    G (networkx.Graph): An undirected graph.
+    
+    Returns:
+    np.ndarray: A square matrix of Jaccard similarities for all pairs of nodes.
+    """
+    # Initialize a matrix to store the Jaccard similarities
+    num_nodes = len(G.nodes)
+    jaccard_sim = np.zeros((num_nodes, num_nodes))
+    
+    # Get all pairs of nodes in the graph
+    node_list = list(G.nodes)
+    
+    # Calculate Jaccard similarity for each pair of nodes
+    for i in tqdm(range(num_nodes), desc="Calculating Jaccard Similarity", mininterval=10.0):
+        for j in range(i, num_nodes):  # Only compute upper triangle to save time
+            node_i, node_j = node_list[i], node_list[j]
+            
+            # Get the neighbor sets for nodes i and j
+            neighbors_i = set(G.neighbors(node_i))
+            neighbors_j = set(G.neighbors(node_j))
+            
+            # Calculate intersection and union
+            intersection = len(neighbors_i.intersection(neighbors_j))
+            union = len(neighbors_i.union(neighbors_j))
+            
+            # Compute the Jaccard similarity
+            jaccard_sim[i, j] = intersection / union if union > 0 else 0
+            jaccard_sim[j, i] = jaccard_sim[i, j]  # Symmetric matrix
+    
+    return jaccard_sim
+
+# def calculate_jaccard_similarity(G):
+#     """
+#     Calculate the Jaccard similarity for all pairs of nodes in an undirected graph G using PyTorch on GPU.
+    
+#     Args:
+#     G (networkx.Graph): An undirected graph.
+    
+#     Returns:
+#     torch.Tensor: A square matrix of Jaccard similarities for all pairs of nodes.
+#     """
+#     # Check if CUDA is available and move tensor to GPU
+#     if torch.cuda.is_available():
+#         device = torch.device("cuda")
+#         print(f"Current CUDA device: {torch.cuda.current_device()}")
+#         print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2} MB")
+#         print(f"Memory cached: {torch.cuda.memory_reserved() / 1024**2} MB")
+#     else:
+#         device = torch.device("cpu")
+#         print("CUDA is not available. Using CPU.")
+
+#     # Get the number of nodes in the graph
+#     num_nodes = len(G.nodes)
+    
+#     # Initialize a sparse tensor to store Jaccard similarities (on the GPU if available)
+#     jaccard_sim = torch.zeros((num_nodes, num_nodes), dtype=torch.float32, device=device)
+    
+#     # Create a mapping from node to index
+#     node_list = list(G.nodes)
+#     node_to_index = {node: idx for idx, node in enumerate(node_list)}
+    
+#     # Create a sparse tensor of neighbor sets for each node
+#     indices = []
+#     values = []
+
+#     for node in G.nodes:
+#         node_idx = node_to_index[node]
+#         neighbors = set(G.neighbors(node))
+#         for neighbor in neighbors:
+#             neighbor_idx = node_to_index[neighbor]
+#             indices.append([node_idx, neighbor_idx])
+#             values.append(1)
+
+#     indices = torch.tensor(indices, dtype=torch.long, device=device).t()
+#     values = torch.tensor(values, dtype=torch.float32, device=device)
+    
+#     neighbors_tensor = torch.sparse_coo_tensor(indices, values, (num_nodes, num_nodes), device=device)
+
+#     # Convert the sparse tensor to a dense tensor just before calculating intersections
+#     dense_neighbors_tensor = neighbors_tensor.to_dense()
+
+#     # Now calculate Jaccard similarity using the dense neighbor tensor on the GPU
+#     for i in tqdm(range(num_nodes), desc="Calculating Jaccard Similarity (rows)", ncols=100):
+#         for j in range(i, num_nodes):  # Only compute upper triangle to save time
+#             # Convert to boolean before bitwise operations for intersection and union
+#             i_neighbors = neighbors_tensor[i].to_dense().bool()  # Convert to boolean
+#             j_neighbors = neighbors_tensor[j].to_dense().bool()  # Convert to boolean
+            
+#             # Perform intersection (AND) and union (OR) using bitwise operations
+#             intersection = torch.sum(i_neighbors & j_neighbors)  # Bitwise AND for intersection
+#             union = torch.sum(i_neighbors | j_neighbors)  # Bitwise OR for union
+
+#             # Compute the Jaccard similarity
+#             jaccard_sim[i, j] = intersection.float() / union.float() if union > 0 else 0
+#             jaccard_sim[j, i] = jaccard_sim[i, j]  # Symmetric matrix
+    
+#     print(jaccard_sim)
+
+#     return jaccard_sim
+
+
+
 
 def get_node2vec_embeddings(G, gpu_index=0):
     # Convert NetworkX graph to PyTorch Geometric format
@@ -64,18 +172,9 @@ def get_node2vec_embeddings(G, gpu_index=0):
         context_size=10,
         walks_per_node=10,
         num_negative_samples=1,
-        p=0.25,
-        q=4
+        p=1,
+        q=1
     )
-
-    # Print CUDA availability information
-    print("CUDA available:", torch.cuda.is_available())
-    print("CUDA device count:", torch.cuda.device_count())
-    print("Current CUDA device:", torch.cuda.current_device())
-    print("CUDA device name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
-
-    # Set device based on availability and specified index
-    device = torch.device(f'cuda:{gpu_index}' if torch.cuda.is_available() else 'cpu')
 
     # Move node2vec model to the specified device
     node2vec = node2vec.to(device)
@@ -94,7 +193,6 @@ def get_node2vec_embeddings(G, gpu_index=0):
         # Loop over loader without tqdm
         for batch_idx, (pos_rw, neg_rw) in enumerate(loader):
             pos_rw, neg_rw = pos_rw.to(device), neg_rw.to(device)
-            
             optimizer.zero_grad()
             loss = node2vec.loss(pos_rw, neg_rw)
             loss.backward()
@@ -116,7 +214,7 @@ def get_node2vec_embeddings(G, gpu_index=0):
     node_embeddings = node2vec(torch.arange(pyg_graph.num_nodes, device=device))
     return node_embeddings.cpu().detach().numpy()
 
-
+"""
 def calculate_cosine_similarity(embeddings):
     # Convert embeddings to a NumPy array if they are not already
     embeddings = np.array(embeddings)
@@ -131,24 +229,32 @@ def calculate_cosine_similarity(embeddings):
         cosine_sim[i] = cosine_similarity(embeddings[i].reshape(1, -1), embeddings).flatten()
     
     return cosine_sim
+"""
 
-# def calculate_cosine_similarity(embeddings):
-#     # Convert embeddings to a PyTorch tensor and move to GPU
-#     embeddings = torch.tensor(embeddings, device='cuda')
+def calculate_cosine_similarity(embeddings, batch_size=1000):
+    # Convert embeddings to a PyTorch tensor and move to GPU
+    embeddings = torch.tensor(embeddings, device='cuda')
     
-#     # Normalize embeddings to compute cosine similarity via dot product
-#     embeddings = F.normalize(embeddings)
+    # Normalize embeddings to compute cosine similarity via dot product
+    embeddings = F.normalize(embeddings)
     
-#     # Calculate cosine similarity using matrix multiplication
-#     cosine_sim = torch.mm(embeddings, embeddings.T)
-    
-#     return cosine_sim.cpu().numpy()  # Convert back to NumPy array if needed
+    # Calculate cosine similarity using matrix multiplication
+    num_rows = embeddings.shape[0]
 
-def save_similarity_pairs(similarity_pairs, filename, dataset_name, similarity_type):
+    # Initialize an empty tensor for the similarity matrix
+    cosine_sim = torch.zeros((num_rows, num_rows), device='cuda')
+
+    for i in tqdm(range(0, num_rows, batch_size), desc="Calculating Similarity"):
+        batch_embeddings = embeddings[i : i + batch_size]
+        cosine_sim[i : i + batch_size] = torch.mm(batch_embeddings, embeddings.T)
+    
+    return cosine_sim.cpu().numpy()  # Convert back to NumPy array if needed
+
+def save_similarity_pairs(similarity_pairs, filename, dataset_name, similarity_pool, similarity_type):
 
     print(dataset_name)
 
-    with open(f'{directory_path}/node2vec/{dataset_name}_{similarity_type}_{filename}', 'w') as f:
+    with open(f'{directory_path}/{similarity_type}/{dataset_name}_{similarity_pool}_{filename}', 'w') as f:
         json.dump(similarity_pairs, f, indent=4)
 
 def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= False):
@@ -157,14 +263,15 @@ def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= 
     for i in range(len(cosine_sim)):
         # Get indices of the top `pool_size` similarities excluding itself
         if len(cosine_sim[i]) > pool_size:  # Check if there are enough nodes
-            similar_indices = np.argsort(cosine_sim[i])[-(pool_size + 1):-1]  # Exclude the node itself
-        else:
-            similar_indices = np.argsort(cosine_sim[i])[:-1]  # Exclude the node itself
+            #similar_indices = np.argsort(cosine_sim[i])[-(pool_size + 1):-1]  # Exclude the node itself
 
-        # Optionally filter out indices that are already connected in G
-        if filter_connected:
-            similar_indices = [sim_idx for sim_idx in similar_indices if not G.has_edge(i + 1, int(sim_idx + 1))]
-            similarity_type = 'unseen'
+            similar_indices = np.argsort(cosine_sim[i])[:-1]
+
+            if filter_connected:
+                similar_indices = [sim_idx for sim_idx in similar_indices if not G.has_edge(i + 1, int(sim_idx + 1))]
+                similarity_type = 'unseen'
+
+            similar_indices = similar_indices[-(pool_size):]
 
         similar_indices = [idx.item() if isinstance(idx, torch.Tensor) else idx for idx in similar_indices]
 
@@ -175,32 +282,20 @@ def get_top_similarity_pairs(cosine_sim, pool_size=3, G=None, filter_connected= 
     return similarity_pairs, similarity_type
 
 
-def get_node2vec_similarity(dataset, dataset_name, filter_connected):
-    # Get node embeddings using Node2Vec
-
-    #dataset = dataset[:2]
-
-    #print(dataset)
+def get_similarity(dataset, dataset_name, filter_connected, similarity_type):
 
     G = get_undirected_graph(dataset)
 
-    node_embeddings = get_node2vec_embeddings(G)
+    if similarity_type == 'node2vec':
+        node_embeddings = get_node2vec_embeddings(G)
+        similarity_matrix = calculate_cosine_similarity(node_embeddings)
 
-    # Calculate cosine similarity
-    cosine_sim = calculate_cosine_similarity(node_embeddings)
+    if similarity_type == 'jaccard':    
+        similarity_matrix = calculate_jaccard_similarity(G)
+    
+    similarity_pairs, similarity_pool = get_top_similarity_pairs(similarity_matrix, pool_size=3, G = G, filter_connected = filter_connected)
 
-    #print(cosine_sim)
-
-    # Get top similarity pairs
-    similarity_pairs, similarity_type = get_top_similarity_pairs(cosine_sim, pool_size=3, G = G, filter_connected = filter_connected)
-
-    #print(similarity_pairs)
-
-    save_similarity_pairs(similarity_pairs, '_similarity_pairs.txt', dataset_name, similarity_type)
-
-    # Return the cosine similarity matrix and similarity pairs
-    #return cosine_sim, similarity_pairs  # Return both results if needed
-    #return cosine_sim  # Return both results if needed
+    save_similarity_pairs(similarity_pairs, 'similarity_pairs.txt', dataset_name, similarity_pool, similarity_type)
 
 def load_similarity_pairs(file_path):
     # Load the similarity pairs from the JSON file
@@ -209,23 +304,14 @@ def load_similarity_pairs(file_path):
     return similarity_pairs
 
 def separate_head_tail_by_pareto(node_degree_info):
-    # Sort nodes by degree in descending order
     sorted_nodes = sorted(node_degree_info.items(), key=lambda x: x[1], reverse=True)
-    #print('sorted_nodes: ', sorted_nodes[:10])
-    # Calculate the threshold for the top 20% of nodes
     top_20_percent_count = int(0.2 * len(sorted_nodes))
     
-    # Separate head (top 20%) and tail (bottom 80%)
     head_items = [node for node, degree in sorted_nodes[:top_20_percent_count]]
     tail_items = [node for node, degree in sorted_nodes[top_20_percent_count:]]
     
     head_items_degree = [degree for node, degree in sorted_nodes[:top_20_percent_count]]
     tail_items_degree = [degree for node, degree in sorted_nodes[top_20_percent_count:]]
-
-    #print(head_items_degree[:10])
-    #print(head_items[:10])
-    #print(tail_items_degree[:10])
-    #print(tail_items[:10])
 
     return head_items, tail_items
 
@@ -288,3 +374,13 @@ def find_hop_relationships(G, similarity_pairs):
 
     return hop_relationships
 
+def clean_similarity_pool(similarity_pairs, dataset_name, similarity_type, similarity_pool):
+    # Iterate over each key-value pair in the dictionary
+    cleaned_pairs = {
+        key: [item for item in value if item[1] != 0.0]
+        for key, value in similarity_pairs.items()
+    }
+
+    save_similarity_pairs(cleaned_pairs, 'similarity_pairs.txt', dataset_name, similarity_pool, similarity_type)
+
+    return cleaned_pairs

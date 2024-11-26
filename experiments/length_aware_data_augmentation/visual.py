@@ -124,7 +124,7 @@ def visual_frequency_distribution(dataset_names, all_frequencies, bin_size=5, ma
         plt.savefig(f'experiments/length_aware_data_augmentation/images/visual_frequency_distribution_{dataset_name}.png', format = 'png', dpi = 700)
         #plt.show()
 
-def visual_density_edge_number(density_values, edge_counts, labels, dataset_name, iteration_k, similarity_type = 'entire'):
+def visual_density_edge_number(density_values, labels, dataset_name, similarity_type, iteration_k, similarity_pool = 'entire', if_random = False):
     # Plotting graph density
     plt.figure(figsize=(10, 5))
     plt.bar(labels, density_values, color='skyblue')
@@ -133,25 +133,18 @@ def visual_density_edge_number(density_values, edge_counts, labels, dataset_name
     plt.title(f'{dataset_name} Graph Density Comparison (Iteration {iteration_k})')
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/p_quarter_q_4_visual_density_values_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
-    plt.close()
 
-    # Plotting edge count
-    plt.figure(figsize=(10, 5))
-    plt.bar(labels, edge_counts, color='salmon')
-    plt.xlabel('Graphs')
-    plt.ylabel('Number of Edges')
-    plt.title(f'{dataset_name} Edge Count Comparison (Iteration {iteration_k})')
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/p_quarter_q_4_visual_edge_number_{dataset_name}_k{iteration_k}_{similarity_type}.png', format='png', dpi=700)
+    if if_random:
+        plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/{similarity_type}/random_{dataset_name}_k{iteration_k}_{similarity_pool}_density2.png', format='png', dpi=700)
+    else:
+        plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/{similarity_type}/{dataset_name}_k{iteration_k}_{similarity_pool}_density2.png', format='png', dpi=700)
     plt.close()
 
 def visual_similarity_ranking_plot(params):
     # Unpack the dictionary
     highest_similarity = params['highest_similarity']
     dataset_name = params['dataset_name']
-    similarity_type = params['similarity_type']
+    similarity_pool = params['similarity_pool']
     item_type = params['item_type']
 
     # Choose color based on item_type
@@ -165,5 +158,5 @@ def visual_similarity_ranking_plot(params):
     plt.ylabel("Frequency")
     
     # Save the plot with a dynamic filename
-    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/ranking/visual_similarity_ranking_{item_type}_{similarity_type}_{dataset_name}.png', format='png', dpi=700)
+    plt.savefig(f'experiments/length_aware_data_augmentation/images/similarity/node2vec/ranking/visual_similarity_ranking_{item_type}_{similarity_pool}_{dataset_name}.png', format='png', dpi=700)
     plt.close()
